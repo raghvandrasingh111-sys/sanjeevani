@@ -1,8 +1,10 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+
 import 'package:google_generative_ai/google_generative_ai.dart';
-import '../utils/constants.dart';
+import 'package:http/http.dart' as http;
+
 import '../models/prescription_model.dart';
+import '../utils/constants.dart';
 
 class AIService {
   final String _apiKey = Constants.geminiApiKey;
@@ -24,7 +26,7 @@ class AIService {
       final imageBytes = imageResponse.bodyBytes;
 
       // Use Gemini Vision API to analyze prescription
-      final prompt = '''
+      const prompt = '''
 Analyze this prescription image and extract the following information:
 1. List all medications mentioned
 2. Dosage information for each medication
@@ -44,7 +46,7 @@ Format the response as JSON with the following structure:
       // Note: This is a simplified version. In production, you'd need to
       // properly handle image input with Gemini Vision API
       // For now, we'll use a text-based approach
-      
+
       final content = [
         Content.text(prompt),
         // In production, add image content here
@@ -75,7 +77,8 @@ Format the response as JSON with the following structure:
     } catch (e) {
       // Fallback in case of error
       return {
-        'summary': 'Unable to analyze prescription at this time. Please review the image manually.',
+        'summary':
+            'Unable to analyze prescription at this time. Please review the image manually.',
         'medications': [],
         'dosage': 'As prescribed',
         'instructions': 'Follow doctor\'s instructions',
@@ -104,7 +107,7 @@ Keep it friendly, clear, and easy to understand.
 
       final content = [Content.text(prompt)];
       final response = await _model.generateContent(content);
-      
+
       return response.text ?? 'Unable to generate briefing at this time.';
     } catch (e) {
       return 'Unable to generate briefing at this time. Please contact your doctor for clarification.';

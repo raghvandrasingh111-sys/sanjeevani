@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/user_model.dart';
 
 class AuthProvider with ChangeNotifier {
@@ -16,7 +17,8 @@ class AuthProvider with ChangeNotifier {
 
   static String _authErrorMessage(dynamic e) {
     final msg = e.toString().toLowerCase();
-    if (msg.contains('invalid') && (msg.contains('credential') || msg.contains('password'))) {
+    if (msg.contains('invalid') &&
+        (msg.contains('credential') || msg.contains('password'))) {
       return 'Invalid email or password.';
     }
     if (msg.contains('user not found') || msg.contains('wrong-password')) {
@@ -74,11 +76,11 @@ class AuthProvider with ChangeNotifier {
               .eq('id', user.id)
               .maybeSingle();
         } catch (_) {
-            _errorMessage = 'No profile found. Please sign up first.';
-            _isLoading = false;
-            notifyListeners();
-            return false;
-          }
+          _errorMessage = 'No profile found. Please sign up first.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
         if (profile == null) {
           _errorMessage = 'No profile found. Please sign up first.';
           _isLoading = false;
@@ -133,7 +135,12 @@ class AuthProvider with ChangeNotifier {
     return msg;
   }
 
-  Future<bool> signUp(String email, String password, String name, String userType) async {
+  Future<bool> signUp(
+    String email,
+    String password,
+    String name,
+    String userType,
+  ) async {
     try {
       _isLoading = true;
       _errorMessage = null;
