@@ -146,13 +146,20 @@ class AuthProvider with ChangeNotifier {
       _errorMessage = null;
       notifyListeners();
 
-      await _client.auth.signUp(
+      final response = await _client.auth.signUp(
         email: email.trim(),
         password: password,
         data: {'name': name.trim(), 'user_type': userType},
       );
 
-      final user = _client.auth.currentUser;
+      // If no session, email confirmation is required (sign in with link)
+      if (response.session == null) {
+        _isLoading = false;
+        notifyListeners();
+        return true; // Signup successful, user needs to confirm email
+      }
+
+      final user = response.user;
       if (user == null) {
         _errorMessage = 'Sign up failed. Try again.';
         _isLoading = false;

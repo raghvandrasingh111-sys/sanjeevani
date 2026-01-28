@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:provider/provider.dart';
+
 import '../../providers/auth_provider.dart';
 import '../../utils/constants.dart';
-import '../patient/patient_dashboard.dart';
 import '../doctor/doctor_dashboard.dart';
+import '../patient/patient_dashboard.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -54,6 +55,26 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
 
     if (success) {
+      // For signup with email confirmation, user won't be authenticated yet
+      if (!_isLogin && authProvider.currentUser == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Account created! Please check your email and click the confirmation link to complete signup.',
+            ),
+            backgroundColor: Constants.successColor,
+            duration: Duration(seconds: 5),
+          ),
+        );
+        // Switch to login mode so user can log in after confirming
+        setState(() {
+          _isLogin = true;
+          _nameController.clear();
+          _passwordController.clear();
+        });
+        return;
+      }
+
       if (_selectedUserType == 'patient') {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const PatientDashboard()),
@@ -77,7 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: Container(
-        decoration: BoxDecoration(
+        decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [
               Constants.primaryColor,
@@ -97,7 +118,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     // Logo and Title
-                    Icon(
+                    const Icon(
                       Icons.medical_services_rounded,
                       size: 80,
                       color: Colors.white,
@@ -216,9 +237,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         return SizedBox(
                           width: double.infinity,
                           child: ElevatedButton(
-                            onPressed: authProvider.isLoading
-                                ? null
-                                : _handleSubmit,
+                            onPressed:
+                                authProvider.isLoading ? null : _handleSubmit,
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.white,
                               foregroundColor: Constants.primaryColor,
