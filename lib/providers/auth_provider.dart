@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/user_model.dart';
+import '../utils/constants.dart';
 
 class AuthProvider with ChangeNotifier {
   SupabaseClient get _client => Supabase.instance.client;
@@ -17,6 +18,9 @@ class AuthProvider with ChangeNotifier {
 
   static String _authErrorMessage(dynamic e) {
     final msg = e.toString().toLowerCase();
+    if (msg.contains('rate limit') || msg.contains('email rate limit')) {
+      return 'Too many signup attempts. Please wait a few minutes and try again, or turn off "Confirm email" in Supabase Dashboard → Auth → Email.';
+    }
     if (msg.contains('invalid') &&
         (msg.contains('credential') || msg.contains('password'))) {
       return 'Invalid email or password.';
@@ -33,14 +37,36 @@ class AuthProvider with ChangeNotifier {
     return 'Authentication failed. Please try again.';
   }
 
-  Future<bool> signIn(String email, String password, String userType) async {
+  static String _signUpErrorMessage(String? msg) {
+    if (msg == null || msg.isEmpty) return 'Sign up failed. Please try again.';
+    final m = msg.toLowerCase();
+    if (m.contains('rate limit') || m.contains('email rate limit')) {
+      return 'Too many signup attempts. Wait a few minutes and try again. If you manage the server, turn off "Confirm email" in Supabase → Auth → Email to avoid this.';
+    }
+    return msg;
+  }
+
+  /// For patient: [loginId] is email. For doctor: [loginId] is doctor registration number.
+  Future<bool> signIn(String loginId, String password, String userType) async {
     try {
       _isLoading = true;
       _errorMessage = null;
       notifyListeners();
 
+      final trimmed = loginId.trim();
+      if (userType == 'doctor' && trimmed.contains('@')) {
+        _errorMessage = 'Use your medical registration number to login, not an email.';
+        _isLoading = false;
+        notifyListeners();
+        return false;
+      }
+
+      final email = userType == 'doctor'
+          ? '$trimmed${Constants.doctorEmailSuffix}'
+          : trimmed;
+
       await _client.auth.signInWithPassword(
-        email: email.trim(),
+        email: email,
         password: password,
       );
 
@@ -66,7 +92,7 @@ class AuthProvider with ChangeNotifier {
         try {
           await _client.from('profiles').upsert({
             'id': user.id,
-            'email': user.email ?? email.trim(),
+            'email': user.email ?? email,
             'name': name,
             'user_type': metaUserType,
           }, onConflict: 'id');
@@ -100,18 +126,22 @@ class AuthProvider with ChangeNotifier {
 
       _currentUser = UserModel(
         id: user.id,
-        email: user.email ?? email.trim(),
+        email: user.email ?? email,
         name: profile['name']?.toString() ?? 'User',
         userType: profileUserType!,
         phone: profile['phone']?.toString(),
         profileImageUrl: profile['profile_image_url']?.toString(),
+        aadharNumber: profile['aadhar_number']?.toString(),
+        doctorRegistrationNumber: profile['doctor_registration_number']?.toString(),
       );
 
       _isLoading = false;
       notifyListeners();
       return true;
     } on AuthException catch (e) {
-      _errorMessage = _authMessage(e.message);
+      _errorMessage = userType == 'doctor'
+          ? _authMessageForDoctor(e.message)
+          : _authMessage(e.message);
       _isLoading = false;
       notifyListeners();
       return false;
@@ -126,6 +156,9 @@ class AuthProvider with ChangeNotifier {
   static String _authMessage(String? msg) {
     if (msg == null || msg.isEmpty) return 'Authentication failed.';
     final m = msg.toLowerCase();
+    if (m.contains('rate limit') || m.contains('email rate limit')) {
+      return 'Too many attempts. Please wait a few minutes and try again.';
+    }
     if (m.contains('invalid login') || m.contains('invalid_credentials')) {
       return 'Invalid email or password.';
     }
@@ -135,60 +168,161 @@ class AuthProvider with ChangeNotifier {
     return msg;
   }
 
-  Future<bool> signUp(
-    String email,
-    String password,
-    String name,
-    String userType,
-  ) async {
+  static String _authMessageForDoctor(String? msg) {
+    if (msg == null || msg.isEmpty) return 'Authentication failed.';
+    final m = msg.toLowerCase();
+    if (m.contains('rate limit') || m.contains('email rate limit')) {
+      return 'Too many attempts. Please wait a few minutes and try again.';
+    }
+    if (m.contains('invalid login') || m.contains('invalid_credentials')) {
+      return 'Invalid doctor registration number or password.';
+    }
+    if (m.contains('email not confirmed') || m.contains('confirm your email')) {
+      return 'Please confirm your email, then try again.';
+    }
+    return msg;
+  }
+
+  /// Patient: [email], [password], [name], [aadharNumber]. [aadharNumber] must be unique.
+  /// Doctor: [password], [name], [doctorRegistrationNumber]. Email is derived from registration number.
+  Future<bool> signUp({
+    required String password,
+    required String name,
+    required String userType,
+    String? email,
+    String? aadharNumber,
+    String? doctorRegistrationNumber,
+  }) async {
     try {
       _isLoading = true;
       _errorMessage = null;
       notifyListeners();
 
-      final response = await _client.auth.signUp(
-        email: email.trim(),
-        password: password,
-        data: {'name': name.trim(), 'user_type': userType},
-      );
+      if (userType == 'patient') {
+        if (email == null || email.trim().isEmpty) {
+          _errorMessage = 'Please enter your email.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+        final aadhar = _normalizeAadhar(aadharNumber);
+        if (aadhar == null || aadhar.length != 12) {
+          _errorMessage = 'Please enter a valid 12-digit Aadhar number.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+        // Check Aadhar uniqueness
+        final existing = await _client
+            .from('profiles')
+            .select('id')
+            .eq('aadhar_number', aadhar)
+            .maybeSingle();
+        if (existing != null) {
+          _errorMessage = 'This Aadhar number is already registered.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
 
-      // If no session, email confirmation is required (sign in with link)
-      if (response.session == null) {
-        _isLoading = false;
-        notifyListeners();
-        return true; // Signup successful, user needs to confirm email
+        final response = await _client.auth.signUp(
+          email: email.trim(),
+          password: password,
+          data: {'name': name.trim(), 'user_type': userType},
+        );
+
+        if (response.session == null) {
+          _isLoading = false;
+          notifyListeners();
+          return true;
+        }
+
+        final user = response.user;
+        if (user == null) {
+          _errorMessage = 'Sign up failed. Try again.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+
+        try {
+          await _client.from('profiles').upsert({
+            'id': user.id,
+            'email': email.trim(),
+            'name': name.trim(),
+            'user_type': userType,
+            'aadhar_number': aadhar,
+          }, onConflict: 'id');
+        } catch (_) {}
+
+        _currentUser = UserModel(
+          id: user.id,
+          email: user.email ?? email.trim(),
+          name: name.trim(),
+          userType: userType,
+          aadharNumber: aadhar,
+        );
+      } else {
+        // Doctor: registration number must not contain @ (we append @sanjeevni.doctor)
+        final regNo = (doctorRegistrationNumber ?? '').trim();
+        if (regNo.isEmpty) {
+          _errorMessage = 'Please enter your doctor registration number.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+        if (regNo.contains('@')) {
+          _errorMessage = 'Use your medical registration ID only, not an email address.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+        final doctorEmail = '$regNo${Constants.doctorEmailSuffix}';
+
+        final response = await _client.auth.signUp(
+          email: doctorEmail,
+          password: password,
+          data: {'name': name.trim(), 'user_type': userType},
+        );
+
+        if (response.session == null) {
+          _isLoading = false;
+          notifyListeners();
+          return true;
+        }
+
+        final user = response.user;
+        if (user == null) {
+          _errorMessage = 'Sign up failed. Try again.';
+          _isLoading = false;
+          notifyListeners();
+          return false;
+        }
+
+        try {
+          await _client.from('profiles').upsert({
+            'id': user.id,
+            'email': doctorEmail,
+            'name': name.trim(),
+            'user_type': userType,
+            'doctor_registration_number': regNo,
+          }, onConflict: 'id');
+        } catch (_) {}
+
+        _currentUser = UserModel(
+          id: user.id,
+          email: doctorEmail,
+          name: name.trim(),
+          userType: userType,
+          doctorRegistrationNumber: regNo,
+        );
       }
-
-      final user = response.user;
-      if (user == null) {
-        _errorMessage = 'Sign up failed. Try again.';
-        _isLoading = false;
-        notifyListeners();
-        return false;
-      }
-
-      // Profile is created by Supabase trigger from user_metadata; or insert if no trigger
-      try {
-        await _client.from('profiles').upsert({
-          'id': user.id,
-          'email': email.trim(),
-          'name': name.trim(),
-          'user_type': userType,
-        }, onConflict: 'id');
-      } catch (_) {}
-
-      _currentUser = UserModel(
-        id: user.id,
-        email: user.email ?? email.trim(),
-        name: name.trim(),
-        userType: userType,
-      );
 
       _isLoading = false;
       notifyListeners();
       return true;
     } on AuthException catch (e) {
-      _errorMessage = e.message;
+      _errorMessage = _signUpErrorMessage(e.message);
       _isLoading = false;
       notifyListeners();
       return false;
@@ -198,6 +332,12 @@ class AuthProvider with ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  static String? _normalizeAadhar(String? value) {
+    if (value == null) return null;
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    return digits.length == 12 ? digits : null;
   }
 
   Future<void> signOut() async {
@@ -225,6 +365,8 @@ class AuthProvider with ChangeNotifier {
         userType: profile['user_type']?.toString() ?? 'patient',
         phone: profile['phone']?.toString(),
         profileImageUrl: profile['profile_image_url']?.toString(),
+        aadharNumber: profile['aadhar_number']?.toString(),
+        doctorRegistrationNumber: profile['doctor_registration_number']?.toString(),
       );
       notifyListeners();
     } catch (_) {

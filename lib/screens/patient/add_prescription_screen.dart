@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
@@ -16,14 +16,14 @@ class AddPrescriptionScreen extends StatefulWidget {
 
 class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
   final _notesController = TextEditingController();
-  final _patientIdController = TextEditingController();
-  File? _selectedImage;
+  final _patientAadharController = TextEditingController();
+  Uint8List? _selectedImageBytes;
   final ImagePicker _picker = ImagePicker();
 
   @override
   void dispose() {
     _notesController.dispose();
-    _patientIdController.dispose();
+    _patientAadharController.dispose();
     super.dispose();
   }
 
@@ -34,9 +34,12 @@ class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
     );
 
     if (image != null) {
-      setState(() {
-        _selectedImage = File(image.path);
-      });
+      final bytes = await image.readAsBytes();
+      if (mounted) {
+        setState(() {
+          _selectedImageBytes = bytes;
+        });
+      }
     }
   }
 
@@ -47,21 +50,24 @@ class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
     );
 
     if (image != null) {
-      setState(() {
-        _selectedImage = File(image.path);
-      });
+      final bytes = await image.readAsBytes();
+      if (mounted) {
+        setState(() {
+          _selectedImageBytes = bytes;
+        });
+      }
     }
   }
 
-  Future<String> _uploadImage(File imageFile) async {
+  Future<String> _uploadImage(Uint8List imageBytes) async {
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
     final prescriptionProvider =
         Provider.of<PrescriptionProvider>(context, listen: false);
-    return prescriptionProvider.uploadImage(imageFile, authProvider.currentUser!.id);
+    return prescriptionProvider.uploadImage(imageBytes, authProvider.currentUser!.id);
   }
 
   Future<void> _savePrescription() async {
-    if (_selectedImage == null) {
+    if (_selectedImageBytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please select an image'),
@@ -85,19 +91,67 @@ class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
     );
 
     try {
-      // Upload image
-      final imageUrl = await _uploadImage(_selectedImage!);
+      String? patientId;
+      if (authProvider.currentUser!.userType == 'doctor') {
+        final aadhar = _patientAadharController.text.trim();
+        if (aadhar.isEmpty) {
+          if (mounted) {
+            Navigator.of(context).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Please enter the patient\'s Aadhar number'),
+                backgroundColor: Constants.errorColor,
+              ),
+            );
+          }
+          return;
+        }
+        patientId = await prescriptionProvider.getPatientIdByAadhar(aadhar);
+        if (patientId == null && mounted) {
+          Navigator.of(context).pop();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No patient found with this Aadhar number. Ask them to sign up with this Aadhar first.'),
+              backgroundColor: Constants.errorColor,
+              duration: Duration(seconds: 4),
+            ),
+          );
+          return;
+        }
+      } else {
+        patientId = authProvider.currentUser!.id;
+      }
 
-      // Create prescription
+      // Analyze image with AI from bytes (works on web; avoids CORS)
+      final aiSummary = await prescriptionProvider.analyzePrescriptionFromBytes(_selectedImageBytes!);
+
+      // Upload image to Supabase Storage (can fail with 403 if Storage policies missing)
+      String imageUrl;
+      try {
+        imageUrl = await _uploadImage(_selectedImageBytes!);
+      } catch (e) {
+        if (mounted) {
+          Navigator.of(context).pop(); // Close loading dialog
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_formatUploadError(e)),
+              backgroundColor: Constants.errorColor,
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        }
+        return;
+      }
+
+      // Create prescription record in database
       final success = await prescriptionProvider.createPrescription(
         doctorId: authProvider.currentUser!.id,
-        patientId: _patientIdController.text.trim().isEmpty
-            ? authProvider.currentUser!.id
-            : _patientIdController.text.trim(),
+        patientId: patientId!,
         imageUrl: imageUrl,
         notes: _notesController.text.trim().isEmpty
             ? null
             : _notesController.text.trim(),
+        aiSummary: aiSummary,
       );
 
       if (mounted) {
@@ -115,7 +169,7 @@ class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                prescriptionProvider.errorMessage ?? 'Failed to add prescription',
+                prescriptionProvider.errorMessage ?? 'Failed to save prescription.',
               ),
               backgroundColor: Constants.errorColor,
             ),
@@ -127,12 +181,35 @@ class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
         Navigator.of(context).pop(); // Close loading dialog
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $e'),
+            content: Text(_formatPrescriptionError(e)),
             backgroundColor: Constants.errorColor,
+            duration: const Duration(seconds: 6),
           ),
         );
       }
     }
+  }
+
+  /// Message when Storage upload fails (403/RLS or network).
+  static String _formatUploadError(dynamic e) {
+    final s = e.toString().toLowerCase();
+    if (s.contains('storageexception') ||
+        s.contains('row-level security') ||
+        s.contains('403') ||
+        s.contains('unauthorized')) {
+      return 'Something went wrong while uploading file. Check that Supabase Storage policies are set (SUPABASE_SETUP.md → Storage policies) and try again.';
+    }
+    return 'Something went wrong while uploading file. Please try again.';
+  }
+
+  /// User-friendly message for other save errors (e.g. DB insert).
+  static String _formatPrescriptionError(dynamic e) {
+    final s = e.toString().toLowerCase();
+    if (s.contains('storageexception') ||
+        (s.contains('row-level security') && s.contains('403'))) {
+      return 'Upload blocked by server security settings. Add Storage policies in Supabase (see SUPABASE_SETUP.md) and try again.';
+    }
+    return 'Error: $e';
   }
 
   @override
@@ -190,7 +267,7 @@ class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
                     style: BorderStyle.solid,
                   ),
                 ),
-                child: _selectedImage == null
+                child: _selectedImageBytes == null
                     ? Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -211,8 +288,8 @@ class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
                       )
                     : ClipRRect(
                         borderRadius: BorderRadius.circular(16),
-                        child: Image.file(
-                          _selectedImage!,
+                        child: Image.memory(
+                          _selectedImageBytes!,
                           fit: BoxFit.cover,
                           width: double.infinity,
                         ),
@@ -221,14 +298,17 @@ class _AddPrescriptionScreenState extends State<AddPrescriptionScreen> {
             ),
             const SizedBox(height: 24),
 
-            // Patient ID (only for doctors)
+            // Patient Aadhar (required for doctors)
             if (isDoctor) ...[
               TextFormField(
-                controller: _patientIdController,
+                controller: _patientAadharController,
+                keyboardType: TextInputType.number,
+                maxLength: 14,
                 decoration: const InputDecoration(
-                  labelText: 'Patient ID (Optional)',
-                  hintText: 'Leave empty to use your own ID',
-                  prefixIcon: Icon(Icons.person),
+                  labelText: 'Patient Aadhar Number',
+                  hintText: '12-digit Aadhar of the patient',
+                  prefixIcon: Icon(Icons.badge),
+                  counterText: '',
                 ),
               ),
               const SizedBox(height: 16),

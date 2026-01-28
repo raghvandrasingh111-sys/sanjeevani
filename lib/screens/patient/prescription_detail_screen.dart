@@ -79,11 +79,11 @@ class _PrescriptionDetailScreenState extends State<PrescriptionDetailScreen> {
             ),
             const SizedBox(height: 24),
 
-            // AI Summary Card
+            // Extracted summary from prescription image
             if (widget.prescription.aiSummary != null)
               _buildInfoCard(
-                icon: Icons.auto_awesome,
-                title: 'AI Summary',
+                icon: Icons.description,
+                title: 'Summary',
                 content: widget.prescription.aiSummary!,
                 color: Constants.infoColor,
               ),

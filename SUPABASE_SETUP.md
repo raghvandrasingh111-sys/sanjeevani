@@ -9,7 +9,7 @@
 
 4. In **Storage**, create a bucket named `prescriptions` and set it to **Public** (or add a policy that allows public read and authenticated upload/delete as needed).
 
-5. **Login without email verification:** In **Authentication → Providers → Email**, turn **OFF** "Confirm email" if you want users to log in right after sign up without clicking a confirmation link. If you leave it ON, the app will show a message asking them to confirm their email first.
+5. **Login without email verification:** In **Authentication → Providers → Email**, turn **OFF** "Confirm email" so users (especially doctors using a registration number) can log in right after sign up. If you leave it ON, you may see "email rate limit exceeded" after several signup attempts, and doctors won’t receive a real confirmation email.
 
 ---
 
@@ -77,41 +77,65 @@ CREATE POLICY "Doctors can delete prescriptions they created"
   USING (auth.uid() = doctor_id);
 
 -- Trigger to create profile on signup (uses name/user_type from signUp data)
-CREATE OR REPLACE FUNCTION public.handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, email, name, user_type)
-  VALUES (
-    NEW.id,
-    NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'name', 'User'),
-    COALESCE(NEW.raw_user_meta_data->>'user_type', 'patient')
-  )
-  ON CONFLICT (id) DO UPDATE SET
-    name = EXCLUDED.name,
-    user_type = EXCLUDED.user_type,
-    updated_at = now();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 ```
 
-The app passes `name` and `user_type` in sign-up and upserts the profile so it works with or without the trigger.
+---
+
+## Migration: Aadhar & Doctor registration (run if you already have the base tables)
+
+Run this in the SQL Editor to add patient Aadhar and doctor registration number support:
+
+```sql
+-- Add columns to profiles
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS aadhar_number TEXT UNIQUE,
+  ADD COLUMN IF NOT EXISTS doctor_registration_number TEXT;
+
+-- Allow doctors to read patient profiles (id, aadhar_number) for prescription lookup by Aadhar
+CREATE POLICY "Doctors can view patient profiles for lookup"
+  ON public.profiles FOR SELECT
+  USING (
+    (SELECT p.user_type FROM public.profiles p WHERE p.id = auth.uid()) = 'doctor'
+    AND user_type = 'patient'
+  );
+```
+
+- **Patient signup**: requires email + unique 12-digit Aadhar.
+- **Doctor login/signup**: uses Doctor Registration Number + password (stored internally as `{number}@sanjeevni.doctor`).
+- **Doctor upload prescription**: doctor enters patient’s Aadhar number; app finds the patient and links the prescription.
 
 ---
 
 ## Storage bucket `prescriptions`
 
 1. Go to **Storage** in the Supabase dashboard.
-2. New bucket: name = `prescriptions`, set to **Public** if you want public read URLs (the app uses `getPublicUrl`).
-3. Add a policy if not public, for example:
-   - **SELECT**: allow public or authenticated.
-   - **INSERT**: allow authenticated.
-   - **DELETE**: allow authenticated (and optionally restrict by user).
+2. Create a bucket named **`prescriptions`** and set it to **Public** (so `getPublicUrl` works).
+3. Run the **Storage policies** below in the SQL Editor. Without these, you get **"new row violates row-level security policy" / 403 Unauthorized** when saving a prescription.
+
+### Storage policies (run in SQL Editor)
+
+Run this **after** the bucket `prescriptions` exists:
+
+```sql
+-- Allow anyone to view files in prescriptions bucket (for public URLs)
+CREATE POLICY "Anyone can view prescriptions bucket"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'prescriptions');
+
+-- Allow any authenticated user (doctors) to upload prescription images
+CREATE POLICY "Authenticated users can upload prescriptions"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'prescriptions' AND auth.role() = 'authenticated');
+
+-- Allow users to delete their own uploads (path is userId/filename)
+CREATE POLICY "Users can delete own prescription uploads"
+  ON storage.objects FOR DELETE
+  USING (
+    bucket_id = 'prescriptions' AND
+    auth.uid()::text = (storage.foldername(name))[1]
+  );
+```
+
+If you see "policy already exists", the policies are there; you can skip or drop and re-create.
 
 After this, run `flutter pub get` and configure `Constants.supabaseUrl` and `Constants.supabaseAnonKey` in `lib/utils/constants.dart`.

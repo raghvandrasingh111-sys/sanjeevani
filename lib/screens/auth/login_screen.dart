@@ -18,6 +18,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _aadharController = TextEditingController();
+  final _doctorRegNoController = TextEditingController();
   String _selectedUserType = 'patient';
   bool _isLogin = true;
   final _nameController = TextEditingController();
@@ -27,8 +29,17 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _aadharController.dispose();
+    _doctorRegNoController.dispose();
     _nameController.dispose();
     super.dispose();
+  }
+
+  String get _loginId {
+    if (_selectedUserType == 'doctor') {
+      return _doctorRegNoController.text.trim();
+    }
+    return _emailController.text.trim();
   }
 
   Future<void> _handleSubmit() async {
@@ -39,16 +50,18 @@ class _LoginScreenState extends State<LoginScreen> {
     bool success;
     if (_isLogin) {
       success = await authProvider.signIn(
-        _emailController.text.trim(),
+        _loginId,
         _passwordController.text,
         _selectedUserType,
       );
     } else {
       success = await authProvider.signUp(
-        _emailController.text.trim(),
-        _passwordController.text,
-        _nameController.text.trim(),
-        _selectedUserType,
+        password: _passwordController.text,
+        name: _nameController.text.trim(),
+        userType: _selectedUserType,
+        email: _selectedUserType == 'patient' ? _emailController.text.trim() : null,
+        aadharNumber: _selectedUserType == 'patient' ? _aadharController.text.trim() : null,
+        doctorRegistrationNumber: _selectedUserType == 'doctor' ? _doctorRegNoController.text.trim() : null,
       );
     }
 
@@ -71,6 +84,7 @@ class _LoginScreenState extends State<LoginScreen> {
           _isLogin = true;
           _nameController.clear();
           _passwordController.clear();
+          _aadharController.clear();
         });
         return;
       }
@@ -179,25 +193,74 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                     ],
 
-                    // Email Field
-                    TextFormField(
-                      controller: _emailController,
-                      keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                        prefixIcon: Icon(Icons.email),
+                    // Patient: Email (and Aadhar on signup)
+                    if (_selectedUserType == 'patient') ...[
+                      TextFormField(
+                        controller: _emailController,
+                        keyboardType: TextInputType.emailAddress,
+                        decoration: const InputDecoration(
+                          labelText: 'Email',
+                          prefixIcon: Icon(Icons.email),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your email';
+                          }
+                          if (!value.contains('@')) {
+                            return 'Please enter a valid email';
+                          }
+                          return null;
+                        },
                       ),
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter your email';
-                        }
-                        if (!value.contains('@')) {
-                          return 'Please enter a valid email';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
+                      const SizedBox(height: 16),
+                      if (!_isLogin)
+                        TextFormField(
+                          controller: _aadharController,
+                          keyboardType: TextInputType.number,
+                          maxLength: 14,
+                          decoration: const InputDecoration(
+                            labelText: 'Aadhar Number',
+                            hintText: '12-digit Aadhar number',
+                            prefixIcon: Icon(Icons.badge),
+                            counterText: '',
+                          ),
+                          validator: (value) {
+                            if (!_isLogin && (value == null || value.isEmpty)) {
+                              return 'Please enter your Aadhar number';
+                            }
+                            if (!_isLogin && value != null) {
+                              final digits = value.replaceAll(RegExp(r'\D'), '');
+                              if (digits.length != 12) {
+                                return 'Aadhar must be 12 digits';
+                              }
+                            }
+                            return null;
+                          },
+                        ),
+                      if (!_isLogin) const SizedBox(height: 16),
+                    ],
+
+                    // Doctor: Registration Number (not an email)
+                    if (_selectedUserType == 'doctor') ...[
+                      TextFormField(
+                        controller: _doctorRegNoController,
+                        decoration: const InputDecoration(
+                          labelText: 'Doctor Registration Number',
+                          hintText: 'e.g. MCI12345 or DRN-2020-001 (not your email)',
+                          prefixIcon: Icon(Icons.medical_services),
+                        ),
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Please enter your registration number';
+                          }
+                          if (value.contains('@')) {
+                            return 'Use your medical registration ID only, not an email';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                    ],
 
                     // Password Field
                     TextFormField(

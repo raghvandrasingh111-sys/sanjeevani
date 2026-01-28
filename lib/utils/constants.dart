@@ -9,21 +9,31 @@ class Constants {
   // static const String supabaseAnonKey =
   //     'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhqaXhwbXhpY2hqcmxhZ3dvbWV2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk1MDU0NTcsImV4cCI6MjA4NTA4MTQ1N30.KJ7BWOvWv_w1RUbpqeiGmre41D8777bKdCL2lzapGLo';
 
-  // Google Generative AI - Replace with your API key
-  static const String geminiApiKey = 'AIzaSyB9KZPb_CU5ZZJURK_N682T153qJHThSzo';
+  /// Used for doctor login: email = registrationNumber + this suffix
+  static const String doctorEmailSuffix = '@sanjeevni.doctor';
 
-  // App Colors
-  static const Color primaryColor = Color(0xFF2E7D32);
-  static const Color secondaryColor = Color(0xFF66BB6A);
-  static const Color accentColor = Color(0xFF4CAF50);
+  // Google Generative AI - Replace with your key from https://aistudio.google.com/apikey
+  static const String geminiApiKey = 'AIzaSyD0fbgr7d53ncLZzehAG3lfjDPB4NVZVlE';
+
+  // App Colors (Figma / Sanjeevani design)
+  static const Color primaryColor = Color(0xFF13EC92);
+  static const Color secondaryColor = Color(0xFF13EC92);
+  static const Color accentColor = Color(0xFF13EC92);
   static const Color errorColor = Color(0xFFE53935);
   static const Color successColor = Color(0xFF43A047);
   static const Color warningColor = Color(0xFFFF9800);
   static const Color infoColor = Color(0xFF2196F3);
 
+  // Figma design system
+  static const Color backgroundLight = Color(0xFFF6F8F7);
+  static const Color backgroundDark = Color(0xFF10221A);
+  static const Color cardDark = Color(0xFF1A3328);
+  static const Color textMutedLight = Color(0xFF64748B);
+  static const Color textMutedDark = Color(0xFF92C9B2);
+
   // Gradient Colors
   static const LinearGradient primaryGradient = LinearGradient(
-    colors: [Color(0xFF2E7D32), Color(0xFF66BB6A)],
+    colors: [Color(0xFF13EC92), Color(0xFF0FBF75)],
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
   );

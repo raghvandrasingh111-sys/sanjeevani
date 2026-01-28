@@ -1,6 +1,8 @@
-import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/prescription_model.dart';
 import '../services/ai_service.dart';
 
@@ -17,16 +19,22 @@ class PrescriptionProvider with ChangeNotifier {
   String? get errorMessage => _errorMessage;
 
   /// Upload image to Supabase Storage; returns public URL.
-  Future<String> uploadImage(File file, String userId) async {
-    final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
-    final path = '$userId/$fileName';
-    await _client.storage.from('prescriptions').upload(
-          path,
-          file,
-          fileOptions: const FileOptions(upsert: true),
-        );
-    final url = _client.storage.from('prescriptions').getPublicUrl(path);
-    return url;
+  /// Throws on failure (e.g. StorageException with 403 if RLS policies missing).
+  Future<String> uploadImage(Uint8List imageBytes, String userId) async {
+    try {
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final path = '$userId/$fileName';
+      await _client.storage.from('prescriptions').uploadBinary(
+            path,
+            imageBytes,
+            fileOptions: const FileOptions(upsert: true),
+          );
+      return _client.storage.from('prescriptions').getPublicUrl(path);
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> fetchPrescriptions(String userId, String userType) async {
@@ -61,18 +69,41 @@ class PrescriptionProvider with ChangeNotifier {
     }
   }
 
+  /// Runs AI analysis on image bytes (works on web; no URL fetch). Use before upload.
+  Future<Map<String, dynamic>> analyzePrescriptionFromBytes(Uint8List imageBytes) async {
+    return _aiService.analyzePrescriptionFromBytes(imageBytes);
+  }
+
+  /// Resolve patient user id from 12-digit Aadhar. Returns null if not found.
+  Future<String?> getPatientIdByAadhar(String aadhar) async {
+    try {
+      final normalized = aadhar.replaceAll(RegExp(r'\D'), '');
+      if (normalized.length != 12) return null;
+      final row = await _client
+          .from('profiles')
+          .select('id')
+          .eq('aadhar_number', normalized)
+          .eq('user_type', 'patient')
+          .maybeSingle();
+      return row?['id'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<bool> createPrescription({
     required String doctorId,
     required String patientId,
     required String imageUrl,
     String? notes,
+    Map<String, dynamic>? aiSummary,
   }) async {
     try {
       _isLoading = true;
       _errorMessage = null;
       notifyListeners();
 
-      final aiSummary = await _aiService.analyzePrescription(imageUrl);
+      final resolved = aiSummary ?? await _aiService.analyzePrescription(imageUrl);
       final now = DateTime.now().toIso8601String();
 
       await _client.from('prescriptions').insert({
@@ -80,10 +111,10 @@ class PrescriptionProvider with ChangeNotifier {
         'patient_id': patientId,
         'image_url': imageUrl,
         'notes': notes,
-        'ai_summary': aiSummary['summary'],
-        'medications': aiSummary['medications'] ?? [],
-        'dosage': aiSummary['dosage'],
-        'instructions': aiSummary['instructions'],
+        'ai_summary': resolved['summary'],
+        'medications': resolved['medications'] ?? [],
+        'dosage': resolved['dosage'],
+        'instructions': resolved['instructions'],
         'created_at': now,
         'updated_at': now,
       });
