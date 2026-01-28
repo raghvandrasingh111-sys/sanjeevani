@@ -7,6 +7,7 @@ import '../../utils/constants.dart';
 import '../../screens/auth/login_screen.dart';
 import 'prescription_detail_screen.dart';
 import 'add_prescription_screen.dart';
+import 'doctor_access_requests_view.dart';
 
 class PatientDashboard extends StatefulWidget {
   const PatientDashboard({super.key});
@@ -79,7 +80,7 @@ class _PatientDashboardState extends State<PatientDashboard> {
                   : _selectedNavIndex == 1
                       ? _buildRecordsView(context, prescriptionProvider, isDark)
                       : _selectedNavIndex == 2
-                          ? _buildDoctorsPlaceholder(isDark)
+                          ? const DoctorAccessRequestsView()
                           : _buildProfileView(context, authProvider, isDark),
             ),
             _buildBottomNav(isDark),

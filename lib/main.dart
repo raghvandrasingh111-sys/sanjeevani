@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:sanjeevni/providers/auth_provider.dart';
+import 'package:sanjeevni/providers/access_provider.dart';
 import 'package:sanjeevni/providers/prescription_provider.dart';
 import 'package:sanjeevni/screens/splash_screen.dart';
 import 'package:sanjeevni/utils/constants.dart';
@@ -46,6 +47,7 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
+        ChangeNotifierProvider(create: (_) => AccessProvider()),
         ChangeNotifierProvider(create: (_) => PrescriptionProvider()),
       ],
       child: MaterialApp(

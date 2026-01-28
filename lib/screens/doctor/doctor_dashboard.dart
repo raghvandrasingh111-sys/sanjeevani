@@ -7,6 +7,7 @@ import '../../utils/constants.dart';
 import '../../screens/auth/login_screen.dart';
 import '../../screens/patient/prescription_detail_screen.dart';
 import '../../screens/patient/add_prescription_screen.dart';
+import 'patient_access_screen.dart';
 
 class DoctorDashboard extends StatefulWidget {
   const DoctorDashboard({super.key});
@@ -43,6 +44,15 @@ class _DoctorDashboardState extends State<DoctorDashboard> {
       appBar: AppBar(
         title: const Text('Doctor Dashboard'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.badge_outlined),
+            tooltip: 'Patient Access',
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const PatientAccessScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () async {

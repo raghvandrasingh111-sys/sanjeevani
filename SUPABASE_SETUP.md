@@ -106,6 +106,72 @@ CREATE POLICY "Doctors can view patient profiles for lookup"
 
 ---
 
+## Feature: Patient-approved doctor access (medical history via Aadhar)
+
+This enables:
+- Doctor requests access using patient Aadhar
+- Patient approves/denies
+- Only **approved** doctors can view that patient’s prescriptions/history
+
+Run this SQL in Supabase SQL Editor:
+
+```sql
+-- Doctor ↔ Patient access requests
+CREATE TABLE IF NOT EXISTS public.doctor_patient_access (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  doctor_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  patient_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL CHECK (status IN ('pending','approved','denied')) DEFAULT 'pending',
+  requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  responded_at TIMESTAMPTZ,
+  UNIQUE (doctor_id, patient_id)
+);
+
+ALTER TABLE public.doctor_patient_access ENABLE ROW LEVEL SECURITY;
+
+-- Doctors can create (request) access for themselves
+CREATE POLICY "Doctors can request access"
+  ON public.doctor_patient_access FOR INSERT
+  WITH CHECK (auth.uid() = doctor_id);
+
+-- Doctors can view their own requests
+CREATE POLICY "Doctors can view own access requests"
+  ON public.doctor_patient_access FOR SELECT
+  USING (auth.uid() = doctor_id);
+
+-- Patients can view requests to them
+CREATE POLICY "Patients can view access requests"
+  ON public.doctor_patient_access FOR SELECT
+  USING (auth.uid() = patient_id);
+
+-- Patients can approve/deny requests to them
+CREATE POLICY "Patients can update access requests"
+  ON public.doctor_patient_access FOR UPDATE
+  USING (auth.uid() = patient_id)
+  WITH CHECK (auth.uid() = patient_id);
+
+-- Allow approved doctors to read patient prescriptions (medical history)
+DROP POLICY IF EXISTS "Users can view prescriptions where they are doctor or patient" ON public.prescriptions;
+
+CREATE POLICY "Users can view prescriptions where they are doctor or patient or approved doctor"
+  ON public.prescriptions FOR SELECT
+  USING (
+    auth.uid() = doctor_id
+    OR auth.uid() = patient_id
+    OR EXISTS (
+      SELECT 1
+      FROM public.doctor_patient_access a
+      WHERE a.doctor_id = auth.uid()
+        AND a.patient_id = public.prescriptions.patient_id
+        AND a.status = 'approved'
+    )
+  );
+```
+
+Notes:
+- If you already have a `prescriptions` SELECT policy with a different name, adjust the `DROP POLICY` line.
+- This grants doctors access to **all** prescriptions for the approved patient (even if created by other doctors), which matches “full medical history”.
+
 ## Storage bucket `prescriptions`
 
 1. Go to **Storage** in the Supabase dashboard.

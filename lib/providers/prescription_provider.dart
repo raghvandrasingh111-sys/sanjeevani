@@ -69,6 +69,35 @@ class PrescriptionProvider with ChangeNotifier {
     }
   }
 
+  /// Doctor-only: fetch a specific patient's full history.
+  /// This will succeed only if server RLS allows it (i.e. patient approved access).
+  Future<List<Prescription>> fetchPatientHistoryAsDoctor(String patientId) async {
+    try {
+      _isLoading = true;
+      _errorMessage = null;
+      notifyListeners();
+
+      final data = await _client
+          .from('prescriptions')
+          .select()
+          .eq('patient_id', patientId)
+          .order('created_at', ascending: false);
+
+      final list = (data as List<Map<String, dynamic>>)
+          .map((r) => Prescription.fromJson(_rowToJson(r)))
+          .toList();
+
+      _isLoading = false;
+      notifyListeners();
+      return list;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _isLoading = false;
+      notifyListeners();
+      return const [];
+    }
+  }
+
   /// Runs AI analysis on image bytes (works on web; no URL fetch). Use before upload.
   Future<Map<String, dynamic>> analyzePrescriptionFromBytes(Uint8List imageBytes) async {
     return _aiService.analyzePrescriptionFromBytes(imageBytes);
